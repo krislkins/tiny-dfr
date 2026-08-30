@@ -911,7 +911,7 @@ fn real_main(drm: &mut DrmBackend) {
     uinput.dev_create().unwrap();
 
     let mut digitizer: Option<InputDevice> = None;
-    let mut touches = HashMap::new();
+    let mut touches = HashMap::<u32, (usize, usize)>::new();
     let mut last_redraw_ts = if layers[active_layer].faster_refresh {
         Local::now().second()
     } else {
@@ -919,6 +919,7 @@ fn real_main(drm: &mut DrmBackend) {
     };
     loop {
         if cfg_mgr.update_config(&mut cfg, &mut layers, width) {
+            touches = HashMap::<u32, (usize, usize)>::new();
             active_layer = 0;
             needs_complete_redraw = true;
         }
