@@ -71,6 +71,8 @@ where
 pub struct ButtonConfig {
     #[serde(alias = "Svg")]
     pub icon: Option<String>,
+    pub animated_icon: Option<Vec<String>>,
+    pub frame_duration_ms: Option<u64>,
     pub text: Option<String>,
     pub theme: Option<String>,
     pub time: Option<String>,
@@ -114,7 +116,9 @@ fn load_config(width: u16) -> (Config, [FunctionLayer; 2]) {
         base.media_layer_keys = user.media_layer_keys.or(base.media_layer_keys);
         base.primary_layer_keys = user.primary_layer_keys.or(base.primary_layer_keys);
         base.active_brightness = user.active_brightness.or(base.active_brightness);
-        base.double_press_switch_layers = user.double_press_switch_layers.or(base.double_press_switch_layers);
+        base.double_press_switch_layers = user
+            .double_press_switch_layers
+            .or(base.double_press_switch_layers);
     };
     let mut media_layer_keys = base.media_layer_keys.unwrap();
     let mut primary_layer_keys = base.primary_layer_keys.unwrap();
@@ -124,6 +128,8 @@ fn load_config(width: u16) -> (Config, [FunctionLayer; 2]) {
                 0,
                 ButtonConfig {
                     icon: None,
+                    animated_icon: None,
+                    frame_duration_ms: None,
                     text: Some("esc".into()),
                     theme: None,
                     action: vec![Key::Esc],
@@ -197,7 +203,13 @@ impl ConfigManager {
         }
     }
     #[cold]
-    fn handle_events(&mut self, cfg: &mut Config, layers: &mut [FunctionLayer; 2], width: u16, evts: Result<Vec<InotifyEvent>, Errno>) -> bool {
+    fn handle_events(
+        &mut self,
+        cfg: &mut Config,
+        layers: &mut [FunctionLayer; 2],
+        width: u16,
+        evts: Result<Vec<InotifyEvent>, Errno>,
+    ) -> bool {
         let mut ret = false;
         for evt in evts.unwrap() {
             if Some(evt.wd) != self.watch_desc {
