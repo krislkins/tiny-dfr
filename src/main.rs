@@ -95,15 +95,6 @@ struct AnimatedImage {
     next_frame: Instant,
 }
 
-//enum ButtonImage {
-//    Text(String),
-//    Svg(Handle),
-//    Bitmap(ImageSurface),
-//    Time(Vec<ChronoItem<'static>>, Locale),
-//    Battery(String, BatteryIconMode, BatteryImages),
-//    Spacer,
-//}
-
 enum ButtonImage {
     Text(String),
     Svg(Handle),
@@ -269,29 +260,6 @@ fn get_battery_state(battery: &str) -> (u32, BatteryState) {
 }
 
 impl Button {
-    //    fn with_config(cfg: ButtonConfig) -> Button {
-    //        if let Some(text) = cfg.text {
-    //            Button::new_text(text, cfg.action)
-    //        } else if let Some(icon) = cfg.icon {
-    //            Button::new_icon(
-    //                &icon,
-    //                cfg.theme,
-    //                cfg.action,
-    //                cfg.icon_width.unwrap_or(DEFAULT_ICON_SIZE),
-    //                cfg.icon_height.unwrap_or(DEFAULT_ICON_SIZE),
-    //            )
-    //        } else if let Some(time) = cfg.time {
-    //            Button::new_time(cfg.action, &time, cfg.locale.as_deref())
-    //        } else if let Some(battery_mode) = cfg.battery {
-    //            if let Some(battery) = find_battery_device() {
-    //                Button::new_battery(cfg.action, battery, battery_mode, cfg.theme)
-    //            } else {
-    //                Button::new_text("Battery N/A".to_string(), cfg.action)
-    //            }
-    //        } else {
-    //            Button::new_spacer()
-    //        }
-    //    }
     fn with_config(cfg: ButtonConfig) -> Button {
         if let Some(text) = cfg.text {
             Button::new_text(text, cfg.action)
@@ -520,6 +488,19 @@ impl Button {
 
         true
     }
+    fn animation_timeout_ms(&self, now: Instant) -> Option<i32> {
+        let ButtonImage::Animated(animation) = &self.image else {
+            return None;
+        };
+
+        if now >= animation.next_frame {
+            return Some(0);
+        }
+
+        let remaining = animation.next_frame.duration_since(now);
+        Some(remaining.as_millis().clamp(1, i32::MAX as u128) as i32)
+    }
+
     fn render(
         &self,
         c: &Context,
@@ -1081,7 +1062,11 @@ fn real_main(drm: &mut DrmBackend) {
         for button in &mut layers[active_layer].buttons {
             button.1.update_animation(animation_now);
         }
-
+        for button in &layers[active_layer].buttons {
+            if let Some(timeout_ms) = button.1.animation_timeout_ms(animation_now) {
+                next_timeout_ms = min(next_timeout_ms, timeout_ms);
+            }
+        }
         if needs_complete_redraw || layers[active_layer].buttons.iter().any(|b| b.1.changed) {
             let shift = if cfg.enable_pixel_shift {
                 pixel_shift.get()
