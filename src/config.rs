@@ -107,6 +107,9 @@ fn load_config(width: u16) -> (Config, [FunctionLayer; 2]) {
     let user = read_to_string(USER_CFG_PATH)
         .map_err::<Error, _>(|e| e.into())
         .and_then(|r| Ok(toml::from_str::<ConfigProxy>(&r)?));
+    if let Err(ref e) = user {
+        eprintln!("ERROR loading {}: {:#}", USER_CFG_PATH, e);
+    }
     if let Ok(user) = user {
         base.media_layer_default = user.media_layer_default.or(base.media_layer_default);
         base.show_button_outlines = user.show_button_outlines.or(base.show_button_outlines);
