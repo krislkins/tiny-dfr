@@ -88,10 +88,27 @@ impl BatteryIconMode {
     }
 }
 
+struct AnimatedImage {
+    frames: Vec<ImageSurface>,
+    current_frame: usize,
+    frame_duration: Duration,
+    next_frame: Instant,
+}
+
+//enum ButtonImage {
+//    Text(String),
+//    Svg(Handle),
+//    Bitmap(ImageSurface),
+//    Time(Vec<ChronoItem<'static>>, Locale),
+//    Battery(String, BatteryIconMode, BatteryImages),
+//    Spacer,
+//}
+
 enum ButtonImage {
     Text(String),
     Svg(Handle),
     Bitmap(ImageSurface),
+    Animated(AnimatedImage),
     Time(Vec<ChronoItem<'static>>, Locale),
     Battery(String, BatteryIconMode, BatteryImages),
     Spacer,
@@ -252,9 +269,41 @@ fn get_battery_state(battery: &str) -> (u32, BatteryState) {
 }
 
 impl Button {
+    //    fn with_config(cfg: ButtonConfig) -> Button {
+    //        if let Some(text) = cfg.text {
+    //            Button::new_text(text, cfg.action)
+    //        } else if let Some(icon) = cfg.icon {
+    //            Button::new_icon(
+    //                &icon,
+    //                cfg.theme,
+    //                cfg.action,
+    //                cfg.icon_width.unwrap_or(DEFAULT_ICON_SIZE),
+    //                cfg.icon_height.unwrap_or(DEFAULT_ICON_SIZE),
+    //            )
+    //        } else if let Some(time) = cfg.time {
+    //            Button::new_time(cfg.action, &time, cfg.locale.as_deref())
+    //        } else if let Some(battery_mode) = cfg.battery {
+    //            if let Some(battery) = find_battery_device() {
+    //                Button::new_battery(cfg.action, battery, battery_mode, cfg.theme)
+    //            } else {
+    //                Button::new_text("Battery N/A".to_string(), cfg.action)
+    //            }
+    //        } else {
+    //            Button::new_spacer()
+    //        }
+    //    }
     fn with_config(cfg: ButtonConfig) -> Button {
         if let Some(text) = cfg.text {
             Button::new_text(text, cfg.action)
+        } else if let Some(frames) = cfg.animated_icon {
+            Button::new_animated_icon(
+                frames,
+                cfg.theme,
+                cfg.action,
+                cfg.icon_width.unwrap_or(DEFAULT_ICON_SIZE),
+                cfg.icon_height.unwrap_or(DEFAULT_ICON_SIZE),
+                cfg.frame_duration_ms.unwrap_or(100),
+            )
         } else if let Some(icon) = cfg.icon {
             Button::new_icon(
                 &icon,
@@ -313,6 +362,45 @@ impl Button {
             changed: false,
         }
     }
+    fn new_animated_icon(
+        frames: Vec<String>,
+        theme: Option<impl AsRef<str>>,
+        action: Vec<Key>,
+        icon_width: i32,
+        icon_height: i32,
+        frame_duration_ms: u64,
+    ) -> Button {
+        assert!(
+            !frames.is_empty(),
+            "AnimatedIcon must contain at least one frame"
+        );
+
+        let images = frames
+            .iter()
+            .map(|frame| {
+                match try_load_image(frame, theme.as_ref(), icon_width, icon_height)
+                    .expect("failed to load animation frame")
+                {
+                    ButtonImage::Bitmap(surface) => surface,
+                    _ => panic!("AnimatedIcon currently supports PNG frames only"),
+                }
+            })
+            .collect();
+
+        Button {
+            action,
+            image: ButtonImage::Animated(AnimatedImage {
+                frames: images,
+                current_frame: 0,
+                frame_duration: Duration::from_millis(frame_duration_ms),
+                next_frame: Instant::now() + Duration::from_millis(frame_duration_ms),
+            }),
+            icon_width: icon_width as f64,
+            icon_height: icon_height as f64,
+            active: false,
+            changed: false,
+        }
+    }
     fn load_battery_image(icon: &str, theme: Option<impl AsRef<str>>) -> Handle {
         if let ButtonImage::Svg(svg) =
             try_load_image(icon, theme, DEFAULT_ICON_SIZE, DEFAULT_ICON_SIZE).unwrap()
@@ -331,15 +419,25 @@ impl Button {
         let mut plain = Vec::new();
         let mut charging = Vec::new();
         for icon in [
-            "battery_0_bar", "battery_1_bar", "battery_2_bar", "battery_3_bar",
-            "battery_4_bar", "battery_5_bar", "battery_6_bar", "battery_full",
+            "battery_0_bar",
+            "battery_1_bar",
+            "battery_2_bar",
+            "battery_3_bar",
+            "battery_4_bar",
+            "battery_5_bar",
+            "battery_6_bar",
+            "battery_full",
         ] {
             plain.push(Self::load_battery_image(icon, theme.as_ref()));
         }
         for icon in [
-            "battery_charging_20", "battery_charging_30", "battery_charging_50",
-            "battery_charging_60", "battery_charging_80",
-            "battery_charging_90", "battery_charging_full",
+            "battery_charging_20",
+            "battery_charging_30",
+            "battery_charging_50",
+            "battery_charging_60",
+            "battery_charging_80",
+            "battery_charging_90",
+            "battery_charging_full",
         ] {
             charging.push(Self::load_battery_image(icon, theme.as_ref()));
         }
@@ -407,6 +505,21 @@ impl Button {
             _ => false,
         }
     }
+    fn update_animation(&mut self, now: Instant) -> bool {
+        let ButtonImage::Animated(animation) = &mut self.image else {
+            return false;
+        };
+
+        if now < animation.next_frame {
+            return false;
+        }
+
+        animation.current_frame = (animation.current_frame + 1) % animation.frames.len();
+        animation.next_frame = now + animation.frame_duration;
+        self.changed = true;
+
+        true
+    }
     fn render(
         &self,
         c: &Context,
@@ -436,6 +549,17 @@ impl Button {
                 let x =
                     button_left_edge + (button_width as f64 / 2.0 - self.icon_width / 2.0).round();
                 let y = y_shift + ((height as f64 - self.icon_height) / 2.0).round();
+                c.set_source_surface(surf, x, y).unwrap();
+                c.rectangle(x, y, self.icon_width, self.icon_height);
+                c.fill().unwrap();
+            }
+            ButtonImage::Animated(animation) => {
+                let surf = &animation.frames[animation.current_frame];
+
+                let x =
+                    button_left_edge + (button_width as f64 / 2.0 - self.icon_width / 2.0).round();
+                let y = y_shift + ((height as f64 - self.icon_height) / 2.0).round();
+
                 c.set_source_surface(surf, x, y).unwrap();
                 c.rectangle(x, y, self.icon_width, self.icon_height);
                 c.fill().unwrap();
@@ -952,6 +1076,11 @@ fn real_main(drm: &mut DrmBackend) {
                 }
             }
         }
+        let animation_now = Instant::now();
+
+        for button in &mut layers[active_layer].buttons {
+            button.1.update_animation(animation_now);
+        }
 
         if needs_complete_redraw || layers[active_layer].buttons.iter().any(|b| b.1.changed) {
             let shift = if cfg.enable_pixel_shift {
@@ -996,8 +1125,12 @@ fn real_main(drm: &mut DrmBackend) {
                 }
                 Event::Keyboard(KeyboardEvent::Key(key)) => {
                     if key.key() == Key::Fn as u32 {
-                        if cfg.double_press_switch_layers > 0 && key.key_state() == KeyState::Pressed {
-                            if last.elapsed() < Duration::from_millis(cfg.double_press_switch_layers.into()) {
+                        if cfg.double_press_switch_layers > 0
+                            && key.key_state() == KeyState::Pressed
+                        {
+                            if last.elapsed()
+                                < Duration::from_millis(cfg.double_press_switch_layers.into())
+                            {
                                 layers.swap(0, 1);
                             }
                             last = Instant::now();
