@@ -1,6 +1,7 @@
 # tiny-dfr
 The most basic dynamic function row daemon possible
 
+with Animated button support
 
 ## Dependencies
 cairo, libinput, freetype, fontconfig, librsvg 2.59 or later, uinput enabled in kernel config
